@@ -39,7 +39,7 @@ def download_prices_for_dataset(tickers: list) -> pl.DataFrame:
 
     df = aggregate_data_to_3_columns(df)
 
-    df = normalize_stock_prices(df, multiEntities=True)
+    df = normalize_stock_prices(df, multi_entities=True)
 
     return df
 
@@ -65,7 +65,7 @@ def download_prices_for_benchmark(ticker: str) -> pl.DataFrame:
         pl.col("Close").fill_null(strategy="forward").fill_null(strategy="backward")
     )
 
-    df = normalize_stock_prices(benchmark_df, multiEntities=False)
+    df = normalize_stock_prices(benchmark_df, multi_entities=False)
 
     return df
 
@@ -109,8 +109,8 @@ def aggregate_data_to_3_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 # Function expects short format data frame
 # Besides making starting base a 100 it also fills nulls
-def normalize_stock_prices(df: pl.DataFrame, multiEntities: bool) -> pl.DataFrame:
-    if multiEntities:
+def normalize_stock_prices(df: pl.DataFrame, multi_entities: bool) -> pl.DataFrame:
+    if multi_entities:
         df = df.with_columns(
             [
                 (
@@ -229,56 +229,42 @@ region_counts = region_counts.with_columns(
     )
 )
 
-# Print summary statistics
-print("\n=== CATEGORY DISTRIBUTION ===")
-for row in category_counts.iter_rows(named=True):
-    print(f"{row['Category']}: {row['Count']} ({row['Percentage']}%)")
-
-print("\n=== REGION DISTRIBUTION ===")
-for row in region_counts.iter_rows(named=True):
-    print(f"{row['Region']}: {row['Count']} ({row['Percentage']}%)")
-
 # Chart 1 - category distribution
-chart1 = (
-    alt.Chart(category_counts.to_pandas())
-    .mark_arc(innerRadius=50, outerRadius=120)
-    .encode(
-        theta=alt.Theta("Count:Q"),
-        color=alt.Color("Category:N"),
-        tooltip=["Category:N", "Count:Q", "Percentage:Q"],
-    )
-) + (
-    alt.Chart(category_counts.to_pandas())
-    .mark_text(radius=140, fontSize=12, fontWeight="bold")
-    .encode(theta=alt.Theta("Count:Q"), text="Label:N", color=alt.value("black"))
+base_category = alt.Chart(category_counts).encode(
+    alt.Theta("Count:Q").stack(True),
+    alt.Radius("Count").scale(type="sqrt", zero=True, rangeMin=10),
+    color="Category:N",
 )
-chart1.save("charts/category-distribution.png")
+
+c1 = base_category.mark_arc(innerRadius=20, stroke="#fff")
+c2 = base_category.mark_text(radiusOffset=10).encode(text="Count:Q")
+
+final_category = c1 + c2
+
+final_category.save("charts/category-distribution.png")
 
 # Chart 2 - region distribution
-chart2 = (
-    alt.Chart(region_counts.to_pandas())
-    .mark_arc(innerRadius=50, outerRadius=120)
-    .encode(
-        theta=alt.Theta("Count:Q"),
-        color=alt.Color("Region:N"),
-        tooltip=["Region:N", "Count:Q", "Percentage:Q"],
-    )
-) + (
-    alt.Chart(region_counts.to_pandas())
-    .mark_text(radius=140, fontSize=12, fontWeight="bold")
-    .encode(theta=alt.Theta("Count:Q"), text="Label:N", color=alt.value("black"))
+base_region = alt.Chart(region_counts).encode(
+    alt.Theta("Count:Q").stack(True),
+    alt.Radius("Count").scale(type="sqrt", zero=True, rangeMin=10),
+    color="Region:N",
 )
-chart2.save("charts/region-distribution.png")
 
-# Chart 3 - market cap distribution (period end)
+c1 = base_region.mark_arc(innerRadius=20, stroke="#fff")
+c2 = base_region.mark_text(radiusOffset=10).encode(text="Count:Q")
+
+final_region = c1 + c2
+
+final_region.save("charts/region-distribution.png")
+
 
 # PHASE 2 - results
 
-# Chart 4 - index vs. benchmark
+# Chart 3 - index vs. benchmark
 save_index_vs_benchmark_chart(df_combined, "index-vs-benchmark-full-timeframe.png")
 
 
-# Chart 5 - by ticker full timeframe - CAGR Analysis
+# Table 1 - by ticker full timeframe - CAGR Analysis
 def calculate_ticker_cagr_statistics(df: pl.DataFrame) -> tuple[pl.DataFrame, dict]:
     """Calculate CAGR returns and statistics for all tickers"""
     df_filtered = df.filter(
@@ -328,9 +314,9 @@ print(f"Mean CAGR: {cagr_summary['mean'] * 100:.2f}%")
 print(f"Median CAGR: {cagr_summary['median'] * 100:.2f}%")
 print(f"Standard Deviation: {cagr_summary['std'] * 100:.2f}%")
 
-print("\n=== TOP 5 CAGR PERFORMERS ===")
-top_5 = ticker_cagr.head(5)
-for row in top_5.iter_rows(named=True):
+print("\n=== TOP 20 CAGR PERFORMERS ===")
+top_20 = ticker_cagr.head(20)
+for row in top_20.iter_rows(named=True):
     print(f"{row['Ticker']}: {row['CAGR'] * 100:.2f}%")
 
 print("\n=== BOTTOM 5 CAGR PERFORMERS ===")
@@ -341,8 +327,18 @@ for row in bottom_5.iter_rows(named=True):
 # Save detailed CAGR data to CSV
 ticker_cagr.write_csv("charts/ticker-cagr-analysis.csv")
 
+# Chart 4 - CAGR distribution by ticker
 
-# Chart 6 - by performance full timeframe
+base_cagr = alt.Chart(ticker_cagr)
+
+cagr_bar = base_cagr.mark_bar().encode(alt.X("CAGR:Q").bin(maxbins=40), y="count()")
+cagr_rule = base_cagr.mark_rule(color="red").encode(x="mean(CAGR):Q", size=alt.value(5))
+
+cagr_final = cagr_bar + cagr_rule
+cagr_final.save("charts/cagr-distribution.png")
+
+
+# Chart 5 - by performance full timeframe
 save_aggregated_chart_of_returns(
     df_region,
     "Region",
@@ -350,7 +346,7 @@ save_aggregated_chart_of_returns(
     START_DATETIME,
     END_DATETIME,
 )
-# Chart 7 - by category full timeframe
+# Chart 6 - by category full timeframe
 save_aggregated_chart_of_returns(
     df_category,
     "Category",
@@ -358,7 +354,7 @@ save_aggregated_chart_of_returns(
     START_DATETIME,
     END_DATETIME,
 )
-# Chart 8 - by region covid timeframe
+# Chart 7 - by region covid timeframe
 save_aggregated_chart_of_returns(
     df_region,
     "Region",
@@ -366,7 +362,7 @@ save_aggregated_chart_of_returns(
     START_DATETIME,
     COVID_END_DATETIME,
 )
-# Chart 9 - by category covid timeframe
+# Chart 8 - by category covid timeframe
 save_aggregated_chart_of_returns(
     df_category,
     "Category",
@@ -374,7 +370,3 @@ save_aggregated_chart_of_returns(
     START_DATETIME,
     COVID_END_DATETIME,
 )
-
-# Chart 10 - by region vs. benchmark covid timeframe
-
-# Chart 11 - by category vs. benchmark covid timeframe
